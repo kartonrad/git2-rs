@@ -2701,6 +2701,143 @@ impl Repository {
         }
     }
 
+    /// Directly run a diff between a blob and a buffer.
+    ///
+    /// As with [crate::Repository::diff_blobs], comparing a blob and buffer lacks some context,
+    /// so the `DiffFile` parameters to the callbacks will be faked a la the
+    /// rules for `diff_blobs()`.
+    ///
+    /// Passing [None] for `old_blob` will be treated as an empty blob (i.e. the
+    /// `file_cb` will be invoked with GIT_DELTA_ADDED and the diff will be the
+    /// entire content of the buffer added).  Passing [None] to the buffer will do
+    /// the reverse, with GIT_DELTA_REMOVED and blob content removed.
+    pub fn diff_blob_to_buffer(
+        &self,
+        old_blob: Option<&Blob<'_>>,
+        old_as_path: Option<&str>,
+        buffer: Option<&[u8]>,
+        buffer_as_path: Option<&str>,
+        opts: Option<&mut DiffOptions>,
+        file_cb: Option<&mut FileCb<'_>>,
+        binary_cb: Option<&mut BinaryCb<'_>>,
+        hunk_cb: Option<&mut HunkCb<'_>>,
+        line_cb: Option<&mut LineCb<'_>>,
+    ) -> Result<(), Error> {
+        let old_as_path = crate::opt_cstr(old_as_path)?;
+        let buffer_as_path = crate::opt_cstr(buffer_as_path)?;
+        let mut cbs = DiffCallbacks {
+            file: file_cb,
+            binary: binary_cb,
+            hunk: hunk_cb,
+            line: line_cb,
+        };
+        let ptr = &mut cbs as *mut _;
+        unsafe {
+            let file_cb_c: raw::git_diff_file_cb = if cbs.file.is_some() {
+                Some(file_cb_c)
+            } else {
+                None
+            };
+            let binary_cb_c: raw::git_diff_binary_cb = if cbs.binary.is_some() {
+                Some(binary_cb_c)
+            } else {
+                None
+            };
+            let hunk_cb_c: raw::git_diff_hunk_cb = if cbs.hunk.is_some() {
+                Some(hunk_cb_c)
+            } else {
+                None
+            };
+            let line_cb_c: raw::git_diff_line_cb = if cbs.line.is_some() {
+                Some(line_cb_c)
+            } else {
+                None
+            };
+
+            try_call!(raw::git_diff_blob_to_buffer(
+                old_blob.map(|s| s.raw()),
+                old_as_path,
+                buffer.map(|s| s.as_ptr() as *const c_char),
+                buffer.map(|s| s.len()).unwrap_or(0),
+                buffer_as_path,
+                opts.map(|s| s.raw()),
+                file_cb_c,
+                binary_cb_c,
+                hunk_cb_c,
+                line_cb_c,
+                ptr as *mut _
+            ));
+            Ok(())
+        }
+    }
+
+    /// Directly run a diff between two buffers.
+    ///
+    /// Even more than with [crate::Repository::diff_blobs], comparing two buffer lacks
+    /// context, so the `DiffFile` parameters to the callbacks will be
+    /// faked a la the rules for `diff_blobs()`.
+    ///
+    pub fn diff_buffers(
+        &self,
+        new_buffer: Option<&[u8]>,
+        new_as_path: Option<&str>,
+        old_buffer: Option<&[u8]>,
+        old_as_path: Option<&str>,
+        opts: Option<&mut DiffOptions>,
+        file_cb: Option<&mut FileCb<'_>>,
+        binary_cb: Option<&mut BinaryCb<'_>>,
+        hunk_cb: Option<&mut HunkCb<'_>>,
+        line_cb: Option<&mut LineCb<'_>>,
+    ) -> Result<(), Error> {
+        let old_as_path = crate::opt_cstr(old_as_path)?;
+        let new_as_path = crate::opt_cstr(new_as_path)?;
+        let mut cbs = DiffCallbacks {
+            file: file_cb,
+            binary: binary_cb,
+            hunk: hunk_cb,
+            line: line_cb,
+        };
+        let ptr = &mut cbs as *mut _;
+        unsafe {
+            let file_cb_c: raw::git_diff_file_cb = if cbs.file.is_some() {
+                Some(file_cb_c)
+            } else {
+                None
+            };
+            let binary_cb_c: raw::git_diff_binary_cb = if cbs.binary.is_some() {
+                Some(binary_cb_c)
+            } else {
+                None
+            };
+            let hunk_cb_c: raw::git_diff_hunk_cb = if cbs.hunk.is_some() {
+                Some(hunk_cb_c)
+            } else {
+                None
+            };
+            let line_cb_c: raw::git_diff_line_cb = if cbs.line.is_some() {
+                Some(line_cb_c)
+            } else {
+                None
+            };
+
+            try_call!(raw::git_diff_buffers(
+                new_buffer.map(|s| s.as_ptr() as *const c_void),
+                new_buffer.map(|s| s.len()).unwrap_or(0),
+                new_as_path,
+                old_buffer.map(|s| s.as_ptr() as *const c_void),
+                old_buffer.map(|s| s.len()).unwrap_or(0),
+                old_as_path,
+                opts.map(|s| s.raw()),
+                file_cb_c,
+                binary_cb_c,
+                hunk_cb_c,
+                line_cb_c,
+                ptr as *mut _
+            ));
+            Ok(())
+        }
+    }
+
     /// Directly run a diff on two blobs.
     ///
     /// Compared to a file, a blob lacks some contextual information. As such, the
