@@ -715,6 +715,7 @@ mod message;
 mod note;
 mod object;
 mod odb;
+mod odb_backend;
 mod oid;
 mod packbuilder;
 mod patch;

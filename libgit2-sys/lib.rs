@@ -1512,11 +1512,18 @@ pub struct git_odb_backend {
     pub version: c_uint,
     pub odb: *mut git_odb,
     pub read: Option<
+        // returns GIT_ENOTFOUND or GIT_PASSTHROUGH,
+        // negative is error, 0 and positive is success
         extern "C" fn(
+            // allocate read object here
             *mut *mut c_void,
+            // set it's size in bytes here
             *mut size_t,
+            // set it's type here
             *mut git_object_t,
+            // self referenz kindof?
             *mut git_odb_backend,
+            // Git OID die abgeholt werden soll
             *const git_oid,
         ) -> c_int,
     >,
@@ -4080,8 +4087,6 @@ extern "C" {
     pub fn git_odb_object_dup(out: *mut *mut git_odb_object, obj: *mut git_odb_object) -> c_int;
     pub fn git_odb_object_free(obj: *mut git_odb_object);
 
-    pub fn git_odb_init_backend(odb: *mut git_odb_backend, version: c_uint) -> c_int;
-
     pub fn git_odb_add_backend(
         odb: *mut git_odb,
         backend: *mut git_odb_backend,
@@ -4115,6 +4120,9 @@ extern "C" {
         priority: c_int,
     ) -> c_int;
 
+    pub fn git_odb_init_backend(odb: *mut git_odb_backend, version: c_uint) -> c_int;
+
+    #[deprecated = "In favor of git_odb_backend_data_alloc"]
     pub fn git_odb_backend_malloc(backend: *mut git_odb_backend, len: size_t) -> *mut c_void;
 
     pub fn git_odb_num_backends(odb: *mut git_odb) -> size_t;
@@ -4123,6 +4131,9 @@ extern "C" {
         odb: *mut git_odb,
         position: size_t,
     ) -> c_int;
+
+    pub fn git_odb_backend_data_alloc(backend: *mut git_odb_backend, len: size_t) -> *mut c_void;
+    pub fn git_odb_backend_data_free(backend: *mut git_odb_backend, data: *mut c_void);
 
     // mempack
     pub fn git_mempack_new(out: *mut *mut git_odb_backend) -> c_int;
