@@ -1,6 +1,6 @@
 use std::ffi::c_void;
 
-use libc::{c_int, size_t};
+use libc::{c_int, c_uint, size_t};
 use libgit2_sys::git_oid;
 pub use libgit2_sys::{
     git_object_t, git_odb, git_odb_backend, git_odb_backend_data_alloc, git_odb_backend_data_free,
@@ -171,6 +171,8 @@ pub struct OdbBackendHandle {
 }
 
 pub trait OdbBackend {
+    const VERSION: c_uint;
+
     pub fn new() -> Self;
 
     pub fn read(oid: &git_oid) -> GitRawObj;
@@ -189,9 +191,19 @@ pub trait OdbBackend {
 
     pub fn refresh();
 
-    pub fn into_odb_backend() -> OdbBackendWrapper {}
+    pub fn into_odb_backend() -> OdbBackendWrapper {
+        let mut odb_backend: Arc<git_odb_backend> = Arc::new(unsafe { std::mem::zeroed() });
+        unsafe { git_odb_init_backend(&mut odb_backend, Self::VERSION) }
 
-    pub unsafe fn _git_read(
+        OdbBackendWrapper {
+            handle: OdbBackendHandle {
+                raw_odb_backend: &mut odb_backend,
+            },
+            rust_odb_impl: (),
+        }
+    }
+
+    pub unsafe extern "C" fn _git_read(
         // allocate a git_rawobj here
         output_buffer: *mut *mut c_void,
         // set it's size in bytes here
@@ -216,4 +228,6 @@ pub trait OdbBackend {
 
         return 0;
     }
+
+    pub unsafe extern "C" fn _git_read_prefix() -> c_int {}
 }
