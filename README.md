@@ -4,9 +4,20 @@
 
 libgit2 bindings for Rust.
 
-```toml
-[dependencies]
-git2 = "0.20.2"
+```
+cargo add git2
+```
+
+## Features
+
+By default, git2 includes support for working with local repositories, but does
+not include network support (e.g. cloning remote repositories). If you want to
+use features that require network support, you may need the `"https"` and/or
+`"ssh"` features. If you support user-provided repository URLs, you probably
+want to enable both.
+
+```
+cargo add git2 --features https,ssh
 ```
 
 ## Rust version requirements
@@ -42,17 +53,12 @@ $ cargo build
 ### Automating Testing
 
 Running tests and handling all of the associated edge cases on every commit
-proves tedious very quickly.  To automate tests and handle proper stashing and
-unstashing of unstaged changes and thus avoid nasty surprises, use the
-pre-commit hook found [here][pre-commit-hook] and place it into the
-`.git/hooks/` with the name `pre-commit`.  You may need to add execution
-permissions with `chmod +x`.
-
-To skip tests on a simple commit or doc-fixes, use `git commit --no-verify`.
+proves tedious very quickly.  You can use GitHub's automated CI to run the
+tests on your commit(s) if you do not run them locally.
 
 ## Building on macOS 10.10+
 
-If the `ssh` feature is enabled (and it is by default) then this library depends
+If the `ssh` feature is enabled then this library depends
 on libssh2 which depends on OpenSSL. To get OpenSSL working follow the
 [`openssl` crate's instructions](https://github.com/sfackler/rust-openssl/blob/master/openssl/src/lib.rs#L31).
 

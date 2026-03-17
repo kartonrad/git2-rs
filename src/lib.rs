@@ -9,7 +9,7 @@
 //! The git2-rs library strives to be as close to libgit2 as possible, but also
 //! strives to make using libgit2 as safe as possible. All resource management
 //! is automatic as well as adding strong types to all interfaces (including
-//! `Result`)
+//! `Result`).
 //!
 //! ## Creating a `Repository`
 //!
@@ -65,7 +65,7 @@
 //! source `Repository`, to ensure that they do not outlive the repository
 //! itself.
 
-#![doc(html_root_url = "https://docs.rs/git2/0.20")]
+#![doc(html_root_url = "https://docs.rs/git2/0.21")]
 #![allow(trivial_numeric_casts, trivial_casts)]
 #![deny(missing_docs)]
 #![warn(rust_2018_idioms)]
@@ -88,7 +88,9 @@ pub use crate::buf::Buf;
 pub use crate::cherrypick::CherrypickOptions;
 pub use crate::commit::{Commit, Parents};
 pub use crate::config::{Config, ConfigEntries, ConfigEntry};
-pub use crate::cred::{Cred, CredentialHelper};
+pub use crate::cred::Cred;
+#[cfg(feature = "cred")]
+pub use crate::cred::CredentialHelper;
 pub use crate::describe::{Describe, DescribeFormatOptions, DescribeOptions};
 pub use crate::diff::{Deltas, Diff, DiffDelta, DiffFile, DiffOptions};
 pub use crate::diff::{DiffBinary, DiffBinaryFile, DiffBinaryKind, DiffPatchidOptions};
@@ -101,7 +103,9 @@ pub use crate::index::{
 pub use crate::indexer::{Indexer, IndexerProgress, Progress};
 pub use crate::mailmap::Mailmap;
 pub use crate::mempack::Mempack;
-pub use crate::merge::{AnnotatedCommit, MergeFileOptions, MergeFileResult, MergeOptions};
+pub use crate::merge::{
+    merge_file, AnnotatedCommit, MergeFileInput, MergeFileOptions, MergeFileResult, MergeOptions,
+};
 pub use crate::message::{
     message_prettify, message_trailers_bytes, message_trailers_strs, MessageTrailersBytes,
     MessageTrailersBytesIterator, MessageTrailersStrs, MessageTrailersStrsIterator,
@@ -110,6 +114,7 @@ pub use crate::message::{
 pub use crate::note::{Note, Notes};
 pub use crate::object::Object;
 pub use crate::odb::{Odb, OdbObject, OdbPackwriter, OdbReader, OdbWriter};
+pub use crate::oid::ObjectFormat;
 pub use crate::oid::Oid;
 pub use crate::packbuilder::{PackBuilder, PackBuilderStage};
 pub use crate::patch::Patch;
@@ -140,14 +145,14 @@ pub use crate::tracing::{trace_set, TraceLevel};
 pub use crate::transaction::Transaction;
 pub use crate::tree::{Tree, TreeEntry, TreeIter, TreeWalkMode, TreeWalkResult};
 pub use crate::treebuilder::TreeBuilder;
-pub use crate::util::IntoCString;
+pub use crate::util::{Binding, IntoCString};
 pub use crate::version::Version;
 pub use crate::worktree::{Worktree, WorktreeAddOptions, WorktreeLockStatus, WorktreePruneOptions};
 
 // Create a convinience method on bitflag struct which checks the given flag
 macro_rules! is_bit_set {
     ($name:ident, $flag:expr) => {
-        #[allow(missing_docs)]
+        #[doc = concat!("Check if the ", stringify!($flag), " is set.")]
         pub fn $name(&self) -> bool {
             self.intersects($flag)
         }

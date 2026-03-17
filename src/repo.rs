@@ -17,6 +17,7 @@ use crate::tagforeach::{tag_foreach_cb, TagForeachCB, TagForeachData};
 use crate::util::{self, path_to_repo_path, Binding};
 use crate::worktree::{Worktree, WorktreeAddOptions};
 use crate::CherrypickOptions;
+use crate::ObjectFormat;
 use crate::RevertOptions;
 use crate::{mailmap::Mailmap, panic};
 use crate::{
@@ -456,6 +457,12 @@ impl Repository {
             let ptr = raw::git_repository_path(self.raw);
             util::bytes2path(crate::opt_bytes(self, ptr).unwrap())
         }
+    }
+
+    /// Returns the object ID format (hash algorithm) used by this repository.
+    pub fn object_format(&self) -> ObjectFormat {
+        let oid_type = unsafe { raw::git_repository_oid_type(self.raw()) };
+        unsafe { Binding::from_raw(oid_type) }
     }
 
     /// Returns the path of the shared common directory for this repository.
@@ -963,7 +970,9 @@ impl Repository {
                 let data = &mut *(data as *mut Data<'_, '_>);
                 let mut raw = ptr::null_mut();
                 let rc = raw::git_submodule_lookup(&mut raw, data.repo.raw(), name);
-                assert_eq!(rc, 0);
+                if rc != 0 {
+                    return rc;
+                }
                 data.ret.push(Binding::from_raw(raw));
             }
             0
@@ -1077,6 +1086,17 @@ impl Repository {
         }
     }
 
+    /// Set the configuration file for this repository.
+    ///
+    /// This configuration file will be used for all configuration queries involving this
+    /// repository.
+    pub fn set_config(&self, config: &Config) -> Result<(), Error> {
+        unsafe {
+            try_call!(raw::git_repository_set_config(self.raw(), config.raw()));
+        }
+        Ok(())
+    }
+
     /// Get the value of a git attribute for a path as a string.
     ///
     /// This function will return a special string if the attribute is set to a special value.
@@ -1132,9 +1152,7 @@ impl Repository {
     /// The Oid returned can in turn be passed to `find_blob` to get a handle to
     /// the blob.
     pub fn blob(&self, data: &[u8]) -> Result<Oid, Error> {
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             let ptr = data.as_ptr() as *const c_void;
             let len = data.len() as size_t;
@@ -1156,9 +1174,7 @@ impl Repository {
     pub fn blob_path(&self, path: &Path) -> Result<Oid, Error> {
         // Normal file path OK (does not need Windows conversion).
         let path = path.into_c_string()?;
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_blob_create_fromdisk(&mut raw, self.raw(), path));
             Ok(Binding::from_raw(&raw as *const _))
@@ -1214,6 +1230,20 @@ impl Repository {
     pub fn set_odb(&self, odb: &Odb<'_>) -> Result<(), Error> {
         unsafe {
             try_call!(raw::git_repository_set_odb(self.raw(), odb.raw()));
+        }
+        Ok(())
+    }
+
+    /// Suggests that the reference database compress or optimize its
+    /// references. This mechanism is implementation specific. For on-disk
+    /// reference databases, for example, this may pack all loose references.
+    pub fn refdb_compress(&self) -> Result<(), Error> {
+        let mut refdb = ptr::null_mut();
+        unsafe {
+            try_call!(raw::git_repository_refdb(&mut refdb, self.raw()));
+            let result = crate::call::c_try(raw::git_refdb_compress(refdb));
+            raw::git_refdb_free(refdb);
+            result?;
         }
         Ok(())
     }
@@ -1309,9 +1339,7 @@ impl Repository {
             .map(|p| p.raw() as *const raw::git_commit)
             .collect::<Vec<_>>();
         let message = CString::new(message)?;
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_commit_create(
                 &mut raw,
@@ -1383,9 +1411,7 @@ impl Repository {
         let commit_content = CString::new(commit_content)?;
         let signature = CString::new(signature)?;
         let signature_field = crate::opt_cstr(signature_field)?;
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_commit_create_with_signature(
                 &mut raw,
@@ -1682,9 +1708,7 @@ impl Repository {
     /// allocate or free any `Reference` objects for simple situations.
     pub fn refname_to_id(&self, name: &str) -> Result<Oid, Error> {
         let name = CString::new(name)?;
-        let mut ret = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut ret = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_reference_name_to_id(&mut ret, self.raw(), name));
             Ok(Binding::from_raw(&ret as *const _))
@@ -1910,9 +1934,7 @@ impl Repository {
     ) -> Result<Oid, Error> {
         let name = CString::new(name)?;
         let message = CString::new(message)?;
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_tag_create(
                 &mut raw,
@@ -1943,9 +1965,7 @@ impl Repository {
     ) -> Result<Oid, Error> {
         let name = CString::new(name)?;
         let message = CString::new(message)?;
-        let mut raw_oid = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw_oid = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_tag_annotation_create(
                 &mut raw_oid,
@@ -1971,9 +1991,7 @@ impl Repository {
         force: bool,
     ) -> Result<Oid, Error> {
         let name = CString::new(name)?;
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_tag_create_lightweight(
                 &mut raw,
@@ -2043,8 +2061,10 @@ impl Repository {
         }
     }
 
-    /// iterate over all tags calling `cb` on each.
-    /// the callback is provided the tag id and name
+    /// Iterate over all tags, calling the callback `cb` on each.
+    /// The arguments of `cb` are the tag id and name, in this order.
+    ///
+    /// Returning `false` from `cb` causes the iteration to break early.
     pub fn tag_foreach<T>(&self, cb: T) -> Result<(), Error>
     where
         T: FnMut(Oid, &[u8]) -> bool,
@@ -2345,9 +2365,7 @@ impl Repository {
     ) -> Result<Oid, Error> {
         let notes_ref = crate::opt_cstr(notes_ref)?;
         let note = CString::new(note)?;
-        let mut ret = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut ret = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_note_create(
                 &mut ret,
@@ -2461,9 +2479,7 @@ impl Repository {
 
     /// Find a merge base between two commits
     pub fn merge_base(&self, one: Oid, two: Oid) -> Result<Oid, Error> {
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_merge_base(
                 &mut raw,
@@ -2509,9 +2525,7 @@ impl Repository {
     /// If you're looking to recieve the common merge base between all the
     /// given commits, use [`Self::merge_base_octopus`].
     pub fn merge_base_many(&self, oids: &[Oid]) -> Result<Oid, Error> {
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
 
         unsafe {
             try_call!(raw::git_merge_base_many(
@@ -2526,9 +2540,7 @@ impl Repository {
 
     /// Find a common merge base between all given a list of commits
     pub fn merge_base_octopus(&self, oids: &[Oid]) -> Result<Oid, Error> {
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
 
         unsafe {
             try_call!(raw::git_merge_base_octopus(
@@ -3108,9 +3120,7 @@ impl Repository {
         flags: Option<StashFlags>,
     ) -> Result<Oid, Error> {
         unsafe {
-            let mut raw_oid = raw::git_oid {
-                id: [0; raw::GIT_OID_RAWSZ],
-            };
+            let mut raw_oid = crate::util::zeroed_raw_oid();
             let message = crate::opt_cstr(message)?;
             let flags = flags.unwrap_or_else(StashFlags::empty);
             try_call!(raw::git_stash_save(
@@ -3130,9 +3140,7 @@ impl Repository {
         opts: Option<&mut StashSaveOptions<'_>>,
     ) -> Result<Oid, Error> {
         unsafe {
-            let mut raw_oid = raw::git_oid {
-                id: [0; raw::GIT_OID_RAWSZ],
-            };
+            let mut raw_oid = crate::util::zeroed_raw_oid();
             let opts = opts.map(|opts| opts.raw());
             try_call!(raw::git_stash_save_with_opts(
                 &mut raw_oid,
@@ -3692,13 +3700,17 @@ impl RepositoryInitOptions {
 #[cfg(test)]
 mod tests {
     use crate::build::CheckoutBuilder;
+    use crate::ObjectFormat;
     use crate::{CherrypickOptions, MergeFileOptions};
     use crate::{
-        ObjectType, Oid, Repository, ResetType, Signature, SubmoduleIgnore, SubmoduleUpdate,
+        Config, ObjectType, Oid, Repository, ResetType, Signature, SubmoduleIgnore, SubmoduleUpdate,
     };
+
     use std::ffi::OsStr;
     use std::fs;
     use std::path::Path;
+
+    use libgit2_sys as raw;
     use tempfile::TempDir;
 
     #[test]
@@ -3708,6 +3720,11 @@ mod tests {
 
         let repo = Repository::init(path).unwrap();
         assert!(!repo.is_bare());
+        assert_eq!(repo.object_format(), ObjectFormat::Sha1);
+
+        let oid = repo.blob(b"test").unwrap();
+        assert_eq!(oid.as_bytes().len(), raw::GIT_OID_MAX_SIZE);
+        assert_eq!(oid.to_string().len(), raw::GIT_OID_SHA1_HEXSIZE);
     }
 
     #[test]
@@ -3718,6 +3735,7 @@ mod tests {
         let repo = Repository::init_bare(path).unwrap();
         assert!(repo.is_bare());
         assert!(repo.namespace().is_none());
+        assert_eq!(repo.object_format(), ObjectFormat::Sha1);
     }
 
     #[test]
@@ -3734,6 +3752,10 @@ mod tests {
             crate::test::realpath(&td.path().join(".git/")).unwrap()
         );
         assert_eq!(repo.state(), crate::RepositoryState::Clean);
+
+        let oid = repo.blob(b"test").unwrap();
+        assert_eq!(oid.as_bytes().len(), raw::GIT_OID_MAX_SIZE);
+        assert_eq!(oid.to_string().len(), raw::GIT_OID_SHA1_HEXSIZE);
     }
 
     #[test]
@@ -4455,6 +4477,25 @@ bar
     }
 
     #[test]
+    fn smoke_set_config() {
+        let (td, repo) = crate::test::repo_init();
+
+        let config = {
+            let config_file = td.path().join(".gitconfig");
+
+            t!(fs::write(&config_file, "[diff]\nnoPrefix = true"));
+
+            t!(Config::open(&config_file))
+        };
+
+        repo.set_config(&config).unwrap();
+
+        let config = repo.config().unwrap();
+
+        assert!(config.get_bool("diff.noPrefix").unwrap());
+    }
+
+    #[test]
     fn smoke_merge_analysis_for_ref() -> Result<(), crate::Error> {
         let (_td, repo) = graph_repo_init();
 
@@ -4668,5 +4709,78 @@ Committer Name <committer.proper@email> <committer@email>"#,
             crate::test::realpath(repo.path()).unwrap(),
             crate::test::realpath(worktree_repo.commondir()).unwrap()
         );
+    }
+
+    #[test]
+    fn smoke_refdb_compress() {
+        let (_td, repo) = crate::test::repo_init();
+        // Compressing an empty-ish refdb should succeed.
+        repo.refdb_compress().unwrap();
+    }
+
+    #[test]
+    fn refdb_compress_with_loose_refs() {
+        let (_td, repo) = crate::test::repo_init();
+        let head_id = repo.refname_to_id("HEAD").unwrap();
+
+        // Create several loose refs.
+        for i in 0..20 {
+            repo.reference(&format!("refs/tags/test-{}", i), head_id, false, "test ref")
+                .unwrap();
+        }
+
+        // Verify refs exist.
+        assert!(repo.references_glob("refs/tags/test-*").unwrap().count() == 20);
+
+        // packed-refs should not exist yet (refs are still loose).
+        let packed_refs = repo.path().join("packed-refs");
+        assert!(
+            !packed_refs.exists(),
+            "packed-refs should not exist before compress"
+        );
+
+        // Compress should pack them without error.
+        repo.refdb_compress().unwrap();
+
+        // packed-refs should now exist after compressing.
+        assert!(
+            packed_refs.exists(),
+            "packed-refs should exist after compress"
+        );
+
+        // Refs should still be resolvable after packing.
+        assert!(repo.references_glob("refs/tags/test-*").unwrap().count() == 20);
+        for i in 0..20 {
+            let r = repo
+                .find_reference(&format!("refs/tags/test-{}", i))
+                .unwrap();
+            assert_eq!(r.target().unwrap(), head_id);
+        }
+    }
+
+    #[test]
+    fn refdb_compress_bare_repo() {
+        let td = TempDir::new().unwrap();
+        let repo = Repository::init_bare(td.path()).unwrap();
+        // Compressing a bare repo with no refs should succeed.
+        repo.refdb_compress().unwrap();
+    }
+
+    #[test]
+    fn refdb_compress_idempotent() {
+        let (_td, repo) = crate::test::repo_init();
+        let head_id = repo.refname_to_id("HEAD").unwrap();
+
+        for i in 0..5 {
+            repo.reference(&format!("refs/tags/idem-{}", i), head_id, false, "test")
+                .unwrap();
+        }
+
+        // Compress multiple times — should be safe and idempotent.
+        repo.refdb_compress().unwrap();
+        repo.refdb_compress().unwrap();
+        repo.refdb_compress().unwrap();
+
+        assert!(repo.references_glob("refs/tags/idem-*").unwrap().count() == 5);
     }
 }

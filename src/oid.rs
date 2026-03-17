@@ -8,6 +8,30 @@ use crate::{raw, Error, IntoCString, ObjectType};
 
 use crate::util::{c_cmp_to_ordering, Binding};
 
+/// Object ID format (hash algorithm).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ObjectFormat {
+    /// SHA1 object format (20-byte object IDs)
+    Sha1,
+}
+
+impl Binding for ObjectFormat {
+    type Raw = raw::git_oid_t;
+
+    unsafe fn from_raw(raw: raw::git_oid_t) -> Self {
+        match raw {
+            raw::GIT_OID_SHA1 => ObjectFormat::Sha1,
+            _ => panic!("Unknown git oid type"),
+        }
+    }
+
+    fn raw(&self) -> Self::Raw {
+        match self {
+            ObjectFormat::Sha1 => raw::GIT_OID_SHA1,
+        }
+    }
+}
+
 /// Unique identity of any object (commit, tree, blob, tag).
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -24,9 +48,7 @@ impl Oid {
     /// characters, or contains any non-hex characters.
     pub fn from_str(s: &str) -> Result<Oid, Error> {
         crate::init();
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut raw = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_oid_fromstrn(
                 &mut raw,
@@ -42,10 +64,8 @@ impl Oid {
     /// If the array given is not 20 bytes in length, an error is returned.
     pub fn from_bytes(bytes: &[u8]) -> Result<Oid, Error> {
         crate::init();
-        let mut raw = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
-        if bytes.len() != raw::GIT_OID_RAWSZ {
+        let mut raw = crate::util::zeroed_raw_oid();
+        if bytes.len() != raw::GIT_OID_MAX_SIZE {
             Err(Error::from_str("raw byte array must be 20 bytes"))
         } else {
             unsafe {
@@ -57,10 +77,9 @@ impl Oid {
 
     /// Creates an all zero Oid structure.
     pub fn zero() -> Oid {
-        let out = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
-        Oid { raw: out }
+        Oid {
+            raw: crate::util::zeroed_raw_oid(),
+        }
     }
 
     /// Hashes the provided data as an object of the provided type, and returns
@@ -69,9 +88,7 @@ impl Oid {
     pub fn hash_object(kind: ObjectType, bytes: &[u8]) -> Result<Oid, Error> {
         crate::init();
 
-        let mut out = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut out = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_odb_hash(
                 &mut out,
@@ -93,9 +110,7 @@ impl Oid {
         // Normal file path OK (does not need Windows conversion).
         let rpath = path.as_ref().into_c_string()?;
 
-        let mut out = raw::git_oid {
-            id: [0; raw::GIT_OID_RAWSZ],
-        };
+        let mut out = crate::util::zeroed_raw_oid();
         unsafe {
             try_call!(raw::git_odb_hashfile(&mut out, rpath, kind.raw()));
         }
@@ -110,7 +125,7 @@ impl Oid {
 
     /// Test if this OID is all zeros.
     pub fn is_zero(&self) -> bool {
-        unsafe { raw::git_oid_iszero(&self.raw) == 1 }
+        unsafe { raw::git_oid_is_zero(&self.raw) == 1 }
     }
 }
 
@@ -134,7 +149,7 @@ impl fmt::Debug for Oid {
 impl fmt::Display for Oid {
     /// Hex-encode this Oid into a formatter.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut dst = [0u8; raw::GIT_OID_HEXSZ + 1];
+        let mut dst = [0u8; raw::GIT_OID_MAX_HEXSIZE + 1];
         unsafe {
             raw::git_oid_tostr(
                 dst.as_mut_ptr() as *mut libc::c_char,
