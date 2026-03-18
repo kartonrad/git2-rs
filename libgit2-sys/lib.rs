@@ -2335,6 +2335,9 @@ extern "C" {
     pub fn git_libgit2_init() -> c_int;
     pub fn git_libgit2_shutdown() -> c_int;
 
+    // malloc
+    pub fn git__calloc(nelem: size_t, elsize: size_t) -> *mut c_void;
+
     // repository
     #[cfg(not(feature = "unstable-sha256"))]
     pub fn git_repository_new(out: *mut *mut git_repository) -> c_int;
@@ -4473,9 +4476,6 @@ extern "C" {
         odb: *mut git_odb,
         position: size_t,
     ) -> c_int;
-
-    pub fn git_odb_backend_data_alloc(backend: *mut git_odb_backend, len: size_t) -> *mut c_void;
-    pub fn git_odb_backend_data_free(backend: *mut git_odb_backend, data: *mut c_void);
 
     // mempack
     pub fn git_mempack_new(out: *mut *mut git_odb_backend) -> c_int;

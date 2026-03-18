@@ -1,13 +1,9 @@
-use std::ffi::c_void;
+#![allow(dead_code)]
+use std::{any::Any, ffi::c_void, marker::PhantomData, ptr::NonNull};
 
-use libc::{c_int, c_uint, size_t};
+use libc::{c_int, size_t};
 use libgit2_sys::git_oid;
-pub use libgit2_sys::{
-    git_object_t, git_odb, git_odb_backend, git_odb_backend_data_alloc, git_odb_backend_data_free,
-    git_odb_backend_malloc, git_odb_init_backend,
-};
-
-use crate::Buf;
+pub use libgit2_sys::{git_object_t, git_odb_backend, git_odb_backend_data_alloc};
 
 // TODO: Lifetimes: with phantom data!!!!
 
@@ -146,12 +142,12 @@ struct GitRawObjC {
     r#type: git_object_t,
 }
 
-struct GitRawObj {
+pub struct GitRawObj {
     data: Vec<u8>,
     git_object_type: git_object_t,
 }
 
-struct GitObjectInfo {
+pub struct GitObjectInfo {
     git_object_type: git_object_t,
     size: size_t,
 }
@@ -161,73 +157,86 @@ impl GitBox {
     pub fn new() {}
 }
 
-pub struct OdbBackendWrapper {
-    handle: OdbBackendHandle,
-    rust_odb_impl: Box<&dyn OdbBackend>,
+pub struct OdbBackendHandle<'a, T: OdbBackend> {
+    pub pointer: NonNull<OdbBackendSneakstructure>,
+    pub(crate) phantom_data: PhantomData<&'a T>,
 }
 
-pub struct OdbBackendHandle {
-    raw_odb_backend: *mut git_odb_backend,
+impl<T: OdbBackend> OdbBackendHandle<'_, T> {
+    pub fn inner_mut(&mut self) -> &mut T {
+        let val_mut = unsafe { self.pointer.as_mut() };
+
+        val_mut
+            .rust_impl
+            .as_any_mut()
+            .downcast_mut()
+            .expect("OdbBackendHandle was created with Type T, but value cannot be downcast")
+    }
 }
 
-pub trait OdbBackend {
-    const VERSION: c_uint;
+#[repr(C)]
+pub struct OdbBackendSneakstructure {
+    /// The Git-Structure for the ODB-Backend.
+    pub backend: git_odb_backend,
+    /// The Rust-Structure implementing the ODB-Backend Trait.
+    pub rust_impl: Box<dyn OdbBackend>,
+}
 
-    pub fn new() -> Self;
+pub trait OdbBackend: 'static {
+    // const VERSION: c_uint;
 
-    pub fn read(oid: &git_oid) -> GitRawObj;
+    // pub fn new() -> Self;
+
+    fn read(&self, oid: &git_oid) -> GitRawObj;
 
     //pub fn read_prefix(oid: &git_oid) -> GitRawObj {}
 
     //pub fn find_from_short_oid(short_oid: &git_oid, len: size_t)
 
-    pub fn read_header(oid: &git_oid) -> GitObjectInfo;
+    fn read_header(&self, oid: &git_oid) -> GitObjectInfo;
 
-    pub fn exists(oid: &git_oid) -> bool;
+    fn exists(&self, oid: &git_oid) -> bool;
 
-    pub fn exists_prefix(oid: &git_oid) -> Option<git_oid>;
+    fn as_any_mut(&self) -> &mut dyn Any;
 
-    pub fn write(oid: &git_oid, buffer: &Vec<u8>, object_type: git_object_t);
+    fn exists_prefix(&self, oid: &git_oid) -> Option<git_oid>;
 
-    pub fn refresh();
+    fn write(&self, oid: &git_oid, buffer: &Vec<u8>, object_type: git_object_t);
 
-    pub fn into_odb_backend() -> OdbBackendWrapper {
-        let mut odb_backend: Arc<git_odb_backend> = Arc::new(unsafe { std::mem::zeroed() });
-        unsafe { git_odb_init_backend(&mut odb_backend, Self::VERSION) }
+    fn refresh(&self);
+}
 
-        OdbBackendWrapper {
-            handle: OdbBackendHandle {
-                raw_odb_backend: &mut odb_backend,
-            },
-            rust_odb_impl: (),
-        }
-    }
+pub extern "C" fn _git_dyn_odbbackend_read(
+    // allocate a git_rawobj here
+    output_buffer: *mut *mut c_void,
+    // set it's size in bytes here
+    output_buffer_size: *mut size_t,
+    // set it's type here
+    output_type: *mut git_object_t,
+    // self referenz kindof?
+    backend_ref: *mut git_odb_backend,
+    // Git OID die abgeholt werden soll
+    requested_oid: *const git_oid,
+) -> c_int {
+    unsafe {
+        let rust_backend_ref = backend_ref as *mut OdbBackendSneakstructure;
+        let rust_backend_ref = rust_backend_ref
+            .as_mut()
+            .expect("GIT-ODB-Backend read should never be called with a null pointer");
 
-    pub unsafe extern "C" fn _git_read(
-        // allocate a git_rawobj here
-        output_buffer: *mut *mut c_void,
-        // set it's size in bytes here
-        output_buffer_size: *mut size_t,
-        // set it's type here
-        output_type: *mut git_object_t,
-        // self referenz kindof?
-        backend_ref: *mut git_odb_backend,
-        // Git OID die abgeholt werden soll
-        requested_oid: *const git_oid,
-    ) -> c_int {
-        let read = Self::read(requested_oid); // TODO: Allow various errors
+        let read = rust_backend_ref.rust_impl.read(&*requested_oid); // TODO: Allow various errors
 
-        let buffer: *mut u8 = git_odb_backend_data_alloc(backend_ref, read.data.len());
-        let buffer = unsafe { std::slice::from_raw_parts_mut(buffer, read.data.len()) };
+        let buffer: *mut u8 = git_odb_backend_data_alloc(backend_ref, read.data.len()) as *mut u8;
+        let buffer = std::slice::from_raw_parts_mut(buffer, read.data.len());
 
         buffer.copy_from_slice(&read.data);
 
-        output_buffer = buffer;
-        output_buffer_size = read.data.len(); // Special treatement for size_t ?
-        output_type = read.git_object_type;
+        *output_buffer = buffer.as_mut_ptr() as *mut c_void;
+        *output_buffer_size = read.data.len(); // Special treatement for size_t ?
+        *output_type = read.git_object_type;
 
         return 0;
     }
-
-    pub unsafe extern "C" fn _git_read_prefix() -> c_int {}
 }
+
+//pub unsafe extern "C" fn _git_read_prefix() -> c_int {}
