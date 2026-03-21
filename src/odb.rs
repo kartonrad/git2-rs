@@ -12,9 +12,11 @@ use libgit2_sys::git__calloc;
 use libgit2_sys::git_odb_backend;
 use libgit2_sys::git_odb_init_backend;
 
+use crate::odb_backend;
 use crate::odb_backend::OdbBackend;
 use crate::odb_backend::OdbBackendHandle;
 use crate::odb_backend::OdbBackendSneakstructure;
+use crate::odb_backend::_git_dyn_odbbackend_free;
 use crate::odb_backend::_git_dyn_odbbackend_read;
 use crate::panic;
 use crate::util::Binding;
@@ -286,15 +288,17 @@ impl<'repo> Odb<'repo> {
         priority: i32,
     ) -> Result<OdbBackendHandle<'odb, B>, Error> {
         // -- Allocate
-        // We need to allocate the git_odb_backend and our metadata in git2-managed memory
-        let mut odb_backend: NonNull<OdbBackendSneakstructure> =
-            NonNull::new(
-                unsafe { git__calloc(1, std::mem::size_of::<OdbBackendSneakstructure>()) }
-                    as *mut OdbBackendSneakstructure,
-            )
-            .expect("git__calloc: OOM");
+        // We need to allocate the git_odb_backend and our metadata.
+        //
+        // The destructor MUST be called by [_git_dyn_odbbackend_free]
+        let odb_backend = Box::new(OdbBackendSneakstructure {
+            backend: unsafe { std::mem::zeroed() },
+            rust_impl: Box::new(backend),
+        });
+        // SAFETY: new_unchecked is safe, because into_raw guarrantees NON-NULL.
+        let odb_backend = unsafe { NonNull::new_unchecked(Box::into_raw(odb_backend)) };
 
-        // -- Initialize sneakstructe.backend & sneakstructe.rust_impl
+        // -- Initialize sneakstructe.backend
         // The 'Sneakstructure' begins with a git_odb_backend,
         // which means we can treat the pointer like a pointer to 'git_odb_backend'
         let mut sneak_odb_backend = odb_backend.cast::<git_odb_backend>();
@@ -303,18 +307,24 @@ impl<'repo> Odb<'repo> {
         // Assign our Handlers, which will access the same Sneakstructure and call the trait methods using dynamic dispatch
         unsafe { sneak_odb_backend.as_mut() }.read = Some(_git_dyn_odbbackend_read);
         // unsafe { sneak_odb_backend.as_mut() }.read_prefix = Some(_git_dyn_odbbackend_read_prefix);
-        // unsafe { sneak_odb_backend.as_mut() }.write = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.read_header = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.write  = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.writestream  = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.readstream  = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.exists  = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.exists_prefix  = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.refresh = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.foreach = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.writepack = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.writemidx = Some(_git_dyn_odbbackend_write);
+        // unsafe { sneak_odb_backend.as_mut() }.freshen = Some(_git_dyn_odbbackend_write);
+        unsafe { sneak_odb_backend.as_mut() }.free = Some(_git_dyn_odbbackend_free);
 
-        // After initializing the git_odb_backend with defaults,
-        // we need to fill the rust_impl pointer.
-        //
-        // Uh, so important to know: We have no guarantee that the constructor will be called
-        // here...
-        // TODO: Fix Leak
-        let mut_odb_backend = unsafe { odb_backend.as_mut() };
-        mut_odb_backend.rust_impl = Box::new(backend) as Box<dyn OdbBackend>;
-
+        // Give Ownership over the odb_backend to the Git ODB.
+        // Ownership will be returned to us when git_odb_backend.free() is called,
+        // which is when we clean up our allocations
         unsafe {
+            // TODO: When this fails, prevent memleak?
             try_call!(raw::git_odb_add_backend(
                 self.raw,
                 odb_backend.as_ptr() as *mut git_odb_backend,
