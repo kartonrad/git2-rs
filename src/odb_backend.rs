@@ -31,7 +31,7 @@ mod ee {
     pub struct git_odb_backendd {
         pub version: c_uint,
         pub odb: *mut git_odb,
-        /// 
+        ///
         /// # returns
         /// `0` or an error code
         pub read: Option<
@@ -62,7 +62,7 @@ mod ee {
         ///
         /// The returned object is reference counted and internally cached,
         /// so it should be closed by the user once it's no longer in use.
-        /// 
+        ///
         /// # returns
         /// `0` or an error code
         pub read_prefix: Option<
@@ -89,7 +89,7 @@ mod ee {
         ///
         /// Note that most backends do not support reading only the header of an object,
         /// so the whole object will be read and then the header will be returned.
-        /// 
+        ///
         /// # returns
         /// `0` or an error code
         pub read_header: Option<
@@ -113,7 +113,7 @@ mod ee {
         ///
         /// This method is provided for compatibility
         /// with custom backends which are not able to support streaming writes
-        /// 
+        ///
         /// # returns
         /// `0` or an error code
         pub write: Option<
@@ -136,11 +136,11 @@ mod ee {
         ///
         /// The type and final length of the object must be specified when opening the stream.
         ///
-        /// The returned stream will be of type GIT_STREAM_WRONLY, and it won't 
+        /// The returned stream will be of type GIT_STREAM_WRONLY, and it won't
         /// be effective until git_odb_stream_finalize_write is called and returns without an error
         ///
         /// The stream must always be freed when done with git_odb_stream_free or will leak memory.
-        /// 
+        ///
         /// # returns
         /// `0` if the stream was created; error code otherwise
         pub writestream: Option<
@@ -173,7 +173,7 @@ mod ee {
         /// `0` if the stream was created; error code otherwise
         pub readstream: Option<
             extern "C" fn(
-                // `out`: [OUT] pointer where to store the stream 
+                // `out`: [OUT] pointer where to store the stream
                 *mut *mut git_odb_stream,
                 // `len`: [OUT] pointer where to store the length of the object
                 *mut size_t,
@@ -186,17 +186,82 @@ mod ee {
             ) -> c_int,
         >,
 
-        pub exists: Option<extern "C" fn(*mut git_odb_backend, *const git_oid) -> c_int>,
-
-        pub exists_prefix: Option<
-            extern "C" fn(*mut git_oid, *mut git_odb_backend, *const git_oid, size_t) -> c_int,
+        /// Determine if the given object can be found in the object database.
+        ///
+        /// ## returns
+        /// 1 if the object was found, 0 otherwise
+        pub exists: Option<
+            extern "C" fn(
+                // `db`: database to be searched for the given object.
+                *mut git_odb_backend,
+                // `id`: the object to search for.
+                *const git_oid,
+            ) -> c_int,
         >,
 
-        pub refresh: Option<extern "C" fn(*mut git_odb_backend) -> c_int>,
+        /// Determine if an object can be found in the object database by an abbreviated object ID.
+        ///
+        /// ## returns
+        /// 0 if found, GIT_ENOTFOUND if not found, GIT_EAMBIGUOUS if multiple matches were found, other value < 0 if there was a read error.
+        pub exists_prefix: Option<
+            extern "C" fn(
+                // `out`: The full OID of the found object if just one is found.
+                *mut git_oid,
+                // `backend`: The database to be searched for the given object.
+                *mut git_odb_backend,
+                // `short_id`: A prefix of the id of the object to read.
+                *const git_oid,
+                // `len`: The length of the prefix.
+                size_t,
+            ) -> c_int,
+        >,
 
-        pub foreach:
-            Option<extern "C" fn(*mut git_odb_backend, git_odb_foreach_cb, *mut c_void) -> c_int>,
+        /// Refresh the object database to load newly added files.
+        ///
+        /// If the object databases have changed on disk while the library is running,
+        /// this function will force a reload of the underlying indexes.
+        ///
+        /// Use this function when you're confident that an external application has tampered with the ODB.
+        ///
+        /// NOTE that it is not necessary to call this function at all.
+        /// The library will automatically attempt to refresh the ODB when a lookup fails,
+        /// to see if the looked up object exists on disk but hasn't been loaded yet.
+        ///
+        /// ## refresh
+        /// 0 on success, error code otherwise
+        pub refresh: Option<
+            extern "C" fn(
+                // `backend`: reference to odb backend
+                *mut git_odb_backend,
+            ) -> c_int,
+        >,
 
+        /// List all objects available in the database
+        ///
+        /// The callback will be called for each object available in the database.
+        /// Note that the objects are likely to be returned in the index order,
+        /// which would make accessing the objects in that order inefficient.
+        /// Return a non-zero value from the callback to stop looping.
+        ///
+        /// ## returns
+        /// 0 on success, non-zero callback return value, or error code
+        pub foreach: Option<
+            extern "C" fn(
+                // `backend`: reference to the odb backend
+                *mut git_odb_backend,
+                // `callback`: the callback to call for each object
+                git_odb_foreach_cb,
+                // `payload`: data to pass to the callback
+                *mut c_void,
+            ) -> c_int,
+        >,
+
+        /// Open a stream for writing a pack file to the ODB.
+        ///
+        /// If the ODB layer understands pack files,
+        /// then the given packfile will likely be streamed directly to disk (and a corresponding index created).
+        /// If the ODB layer does not understand pack files,
+        /// the objects will be stored in whatever format the ODB layer uses.
         pub writepack: Option<
             extern "C" fn(
                 *mut *mut git_odb_writepack,
