@@ -18,6 +18,7 @@ use crate::odb_backend::OdbBackendHandle;
 use crate::odb_backend::OdbBackendSneakstructure;
 use crate::odb_backend::_git_dyn_odbbackend_free;
 use crate::odb_backend::_git_dyn_odbbackend_read;
+use crate::odb_backend::_git_dyn_odbbackend_read_prefix;
 use crate::panic;
 use crate::util::Binding;
 use crate::{
@@ -306,7 +307,7 @@ impl<'repo> Odb<'repo> {
 
         // Assign our Handlers, which will access the same Sneakstructure and call the trait methods using dynamic dispatch
         unsafe { sneak_odb_backend.as_mut() }.read = Some(_git_dyn_odbbackend_read);
-        // unsafe { sneak_odb_backend.as_mut() }.read_prefix = Some(_git_dyn_odbbackend_read_prefix);
+        unsafe { sneak_odb_backend.as_mut() }.read_prefix = Some(_git_dyn_odbbackend_read_prefix);
         // unsafe { sneak_odb_backend.as_mut() }.read_header = Some(_git_dyn_odbbackend_write);
         // unsafe { sneak_odb_backend.as_mut() }.write  = Some(_git_dyn_odbbackend_write);
         // unsafe { sneak_odb_backend.as_mut() }.writestream  = Some(_git_dyn_odbbackend_write);
