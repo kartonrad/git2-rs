@@ -1712,11 +1712,18 @@ pub struct git_odb_backend {
     pub version: c_uint,
     pub odb: *mut git_odb,
     pub read: Option<
+        // returns GIT_ENOTFOUND or GIT_PASSTHROUGH,
+        // negative is error, 0 and positive is success
         extern "C" fn(
+            // allocate read object here
             *mut *mut c_void,
+            // set it's size in bytes here
             *mut size_t,
+            // set it's type here
             *mut git_object_t,
+            // self referenz kindof?
             *mut git_odb_backend,
+            // Git OID die abgeholt werden soll
             *const git_oid,
         ) -> c_int,
     >,
@@ -2327,6 +2334,9 @@ extern "C" {
     // threads
     pub fn git_libgit2_init() -> c_int;
     pub fn git_libgit2_shutdown() -> c_int;
+
+    // malloc
+    pub fn git__calloc(nelem: size_t, elsize: size_t) -> *mut c_void;
 
     // repository
     #[cfg(not(feature = "unstable-sha256"))]
@@ -4398,8 +4408,6 @@ extern "C" {
     pub fn git_odb_object_dup(out: *mut *mut git_odb_object, obj: *mut git_odb_object) -> c_int;
     pub fn git_odb_object_free(obj: *mut git_odb_object);
 
-    pub fn git_odb_init_backend(odb: *mut git_odb_backend, version: c_uint) -> c_int;
-
     pub fn git_odb_add_backend(
         odb: *mut git_odb,
         backend: *mut git_odb_backend,
@@ -4453,6 +4461,8 @@ extern "C" {
         backend: *mut git_odb_backend,
         priority: c_int,
     ) -> c_int;
+
+    pub fn git_odb_init_backend(odb: *mut git_odb_backend, version: c_uint) -> c_int;
 
     #[deprecated(note = "only kept for compatibility; prefer git_odb_backend_data_alloc")]
     pub fn git_odb_backend_malloc(backend: *mut git_odb_backend, len: size_t) -> *mut c_void;
